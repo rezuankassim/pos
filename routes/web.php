@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PosController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -16,7 +17,12 @@ use Inertia\Inertia;
 |
 */
 
-Route::get('/', [PosController::class, 'index']);
+Route::get('/', [PosController::class, 'index'])->name('home');
+Route::post('/order', [OrderController::class, 'store']);
+Route::put('/order/{order}/add', [OrderController::class, 'add']);
+Route::put('/order/{order}/remove', [OrderController::class, 'remove']);
+Route::post('/order/{order}/checkout', [OrderController::class, 'checkout']);
+Route::post('/order/{order}/cancel', [OrderController::class, 'cancel']);
 
 // Route::get('/dashboard', function () {
 //     return Inertia::render('Dashboard');

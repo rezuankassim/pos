@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { InertiaLink } from '@inertiajs/inertia-react';
-import { add, remove } from 'lodash';
+import React, { useEffect, useRef, useState } from 'react';
+import axios from 'axios'
+import Modal from '@/Components/Modal';
+import { ShoppingCartIcon, CheckIcon } from '@heroicons/react/outline'
+import CurrencyInput from 'react-currency-input-field';
 
 const products = [
   { id: 1, name: 'P1', price: '1000' },
@@ -17,29 +19,62 @@ const format = (number) => {
   return formatter.format(number / 100)
 }
 
-export default function Welcome(props) {
-  const [ items, setItems ] = useState([])
+export default function Welcome({ startOrderId, startItems }) {
+  const [ items, setItems ] = useState(startItems)
+  const [ checkoutModalIsOpen, setCheckoutModalIsOpen ] = useState(false)
+  const [ orderId, setOrderId ] = useState(startOrderId ? startOrderId : null)
+  const [ paidAmount, setPaidAmount ] = useState(0)
+  const [ change, setChange ] = useState(0)
+  const [ successIsOpen, setSuccessIsOpen ] = useState(false)
+  const okayButtonRef = useRef(null)
+
+  useEffect(() => {
+    if (! isNaN(paidAmount)) {
+      setChange(paidAmount - getTotalCost())
+    } else {
+      setChange(0)
+    }
+    
+    return [];
+  }, [paidAmount])
 
   const addItem = (id) => {
     let product = products.find((product) => product.id === id)
     let index = items.findIndex((product) => product.product_id === id)
 
     if (index != -1) {
-      items[index].quantity += 1
-      items[index].cost = items[index].product_price * items[index].quantity
+      axios.put(`/order/${orderId}/add`, {
+        product_name: product.name
+      }).then((res) => {
+        items[index].quantity += 1
+        items[index].cost = items[index].product_price * items[index].quantity
+
+        setItems([
+          ...items, 
+        ])
+      })      
     } else {
-      items.push({
+      axios.post('/order', {
+        orderId: orderId,
         product_id: product.id,
         product_name: product.name,
         product_price: product.price,
-        quantity: 1,
-        cost: product.price,
+      }).then((res) => {
+        items.push({
+          product_id: product.id,
+          product_name: product.name,
+          product_price: parseInt(product.price),
+          quantity: 1,
+          cost: parseInt(product.price),
+        })
+
+        setItems([
+          ...items, 
+        ])
+
+        setOrderId(res.data.orderId)
       })
     }
-
-    return setItems([
-      ...items, 
-    ])
   }
 
   const getTotal = () => {
@@ -69,23 +104,58 @@ export default function Welcome(props) {
   const add = (id) => {
     let index = items.findIndex((item) => item.product_id === id)
 
-    items[index].quantity += 1
-    items[index].cost = items[index].product_price * items[index].quantity
+    axios.put(`/order/${orderId}/add`, {
+      product_name: items[index].product_name,
+    }).then((res) => {
+      items[index].quantity += 1
+      items[index].cost = items[index].product_price * items[index].quantity
 
-    return setItems([ ...items ])
+      setItems([
+        ...items, 
+      ])
+    })
   }
 
   const remove = (id) => {
     let index = items.findIndex((item) => item.product_id === id)
 
-    if (items[index].quantity === 1) {
-      items.splice(index, 1)
-    } else {
-      items[index].quantity -= 1
-      items[index].cost = items[index].product_price * items[index].quantity
-    }
+    axios.put(`order/${orderId}/remove`, {
+      product_name: items[index].product_name,
+    }).then((res) => {
+      if (items[index].quantity === 1) {
+        items.splice(index, 1)
 
-    return setItems([ ...items ])
+        if (items.length === 0) {
+          cancel()
+        }
+      } else {
+        items[index].quantity -= 1
+        items[index].cost = items[index].product_price * items[index].quantity
+      }
+
+      setItems([ ...items ])
+    })
+  }
+
+  const checkout = () => {
+    axios.post(`/order/${orderId}/checkout`, {
+      paid_amount: paidAmount
+    }).then(() => {
+      setCheckoutModalIsOpen(false)
+
+      setSuccessIsOpen(true)
+
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    })
+  }
+
+  const cancel = () => {
+    axios.post(`/order/${orderId}/cancel`)
+      .then(() => {
+        window.location.reload()
+      })
   }
 
   return (
@@ -194,13 +264,19 @@ export default function Welcome(props) {
         <div className="grid grid-cols-2 gap-x-3 px-4 py-2">
           <button
             type="button"
-            className="rounded-xl px-6 py-4 bg-gray-300"
-            onClick={() => setItems([])}
+            className="rounded-xl px-6 py-4 bg-gray-300 disabled:opacity-40"
+            onClick={() => cancel()}
+            disabled={!orderId}
           >
             Cancel
           </button>
 
-          <button className="rounded-xl shadow-xl bg-white px-6 py-4">
+          <button
+            type="button"
+            className="rounded-xl shadow-xl bg-white px-6 py-4 disabled:opacity-40"
+            onClick={() => setCheckoutModalIsOpen(true)}
+            disabled={!orderId}
+          >
             Checkout
           </button>
         </div>
@@ -222,6 +298,94 @@ export default function Welcome(props) {
           )) }
         </div>
       </div>
+
+      <Modal open={checkoutModalIsOpen} setOpen={setCheckoutModalIsOpen}>
+        <Modal.Icon>
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+            <ShoppingCartIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
+          </div>
+        </Modal.Icon>
+
+        <Modal.Title>Checkout</Modal.Title>
+
+        <Modal.Content>
+          <div className="grid grid-cols-1 gap-y-4 mt-10 px-4 py-2">
+            <div className="flex items-center justify-between">
+              <span>Total Paid Amount</span>
+
+              <CurrencyInput
+                prefix={'RM '}
+                decimalsLimit={2}
+                className="border-gray-300 text-right focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 rounded-md shadow-sm"
+                onValueChange={(value) => setPaidAmount(value * 100)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span>Total</span>
+              <span>{ format(getTotalCost()) }</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span>Payment Method</span>
+              <span>Cash</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span>Change</span>
+              <span>{ format(change) }</span>
+            </div>
+          </div>
+        </Modal.Content>
+
+        <Modal.Footer className="mt-5 px-4 py-2 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
+          <button
+            type="button"
+            className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm"
+            onClick={() => setCheckoutModalIsOpen(false)}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            className="inline-flex justify-center w-full rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => checkout()}
+            disabled={paidAmount < getTotalCost()}
+          >
+            Checkout
+          </button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal focus={okayButtonRef} open={successIsOpen} setOpen={setSuccessIsOpen}>
+        <Modal.Icon>
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+            <CheckIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
+          </div>
+        </Modal.Icon>
+
+        <Modal.Title>Success</Modal.Title>
+
+        <Modal.Content>
+          <div className="mt-2">
+            <p className="text-sm text-gray-500">
+              Order has been successfully checked out. Reloading the screen in 2 seconds.
+            </p>
+          </div>
+        </Modal.Content>
+
+        <Modal.Footer className="mt-5 px-4 py-2 sm:mt-6 sm:grid sm:grid-cols-1 sm:gap-3 sm:grid-flow-row-dense">
+          <button
+            ref={okayButtonRef}
+            type="button"
+            className="inline-flex justify-center w-full rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:text-sm"
+            onClick={() => window.location.reload()}
+          >
+            OK
+          </button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }
